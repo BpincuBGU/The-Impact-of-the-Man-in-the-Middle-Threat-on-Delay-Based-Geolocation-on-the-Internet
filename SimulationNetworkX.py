@@ -37,6 +37,7 @@ Tsigma = {}
 Vertex_To_Index = {}
 Nodes_To_Pos = []
 
+states_to_names = {}
 
 # round the edge weights, this help avoid floating point errors and create a more realistic simulation with more possible paths
 roundPow = 2
@@ -80,6 +81,11 @@ def read_topology_networkx():
         if (country in COUNTRIES or not COUNTRIES) and (city in CITIES or not CITIES):
             g.add_node(name, longitude=float(longitude), latitude=float(latitude), pos=(float(latitude), float(longitude)))
             counter += 1
+            if(COUNTRIES == ["US"]):
+                if( area in states_to_names):
+                    states_to_names[area].append(name)
+                else:
+                    states_to_names[area] = [name]
     # Read links data from LINKS_PATH
     Nodes_To_Pos = nx.get_node_attributes(g, "pos")
     with open(LINKS_PATH, 'r') as f:
@@ -873,6 +879,66 @@ def validate_cooperative_cr():
     plt.savefig("cooperative_vs_non_cooperative.png", dpi=1000)
     plt.close()
  
+'''
+    Calculates the expected value of successfully manipulating within the same state as the host versus in another state, 
+    based on the number of CRs, with a cooperative host in the US
+'''
+def check_state_manipulation():
+    global COUNTRIES
+    global COOPERATIVE
+    COOPERATIVE = True
+    COUNTRIES = ["US"]
+    g = read_topology_networkx()
+    pre_calculations(g)
+    iterations = 1000
+    average_per_cr = {}
+    for cr in range(6):
+        total_different = 0
+        total_same = 0
+        crs = get_n_best_cr_v3(g,cr)
+        for iter in range(iterations):
+            chance_same_state = 1
+            count_same_state = 0
+            chance_different_state = 1
+            count_different_state = 0
+            PP = np.random.choice(list(g.nodes()), 5, replace=False)
+            PH = np.random.choice(list(g.nodes()), 1, replace=False)
+            host_state = ""
+            for state in states_to_names.keys():
+                if PH in states_to_names[state]:
+                    host_state = state
+                    break
+            calculate_DIPS(g,crs,PP,PH)
+            for v in g.nodes():
+                if not v in states_to_names[host_state]:
+                    chance_different_state += DiPGroup(g,PP,PH[0],v)
+                    count_different_state += 1
+                else:
+                    chance_same_state += DiPGroup(g,PP,PH[0],v)
+                    count_same_state += 1
+            total_different += chance_different_state / count_different_state
+            total_same += chance_same_state / count_same_state
+        average_per_cr.update({cr : (total_different/iterations,total_same/iterations)})
+    
+    keys = list(average_per_cr.keys())
+    first_values = [value[0] for value in average_per_cr.values()]
+    second_values = [value[1] for value in average_per_cr.values()]
+
+    # Plotting
+    plt.figure(figsize=(10, 5))
+
+    plt.plot(keys, first_values, label='Different State', marker='o')
+    plt.plot(keys, second_values, label='Same State', marker='o')
+
+    plt.xlabel('CR count')
+    plt.ylabel('Probability To Succeed')
+    plt.title('Average Manipulation Success Rate As a Function of CR Count')
+    plt.legend()
+
+    plt.savefig("average_per_cr_noncoop.png")
+        
+
+
 # Example of plotting the disguise probabilty per distance like shown in the paper
 def main():
     global COUNTRIES
